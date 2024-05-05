@@ -1,6 +1,7 @@
 package hldf.taie.analysis.pta.plugin;
 
 import pascal.taie.World;
+import pascal.taie.analysis.pta.core.solver.DeclaredParamProvider;
 import pascal.taie.analysis.pta.core.solver.EntryPoint;
 import pascal.taie.analysis.pta.core.solver.Solver;
 import pascal.taie.analysis.pta.plugin.Plugin;
@@ -21,35 +22,38 @@ public class WebPlugin implements Plugin {
         World.get().getClassHierarchy().applicationClasses()
                 .filter(jClass -> !jClass.isAbstract() && !jClass.isInterface())
                 .forEach((jClass -> {
-                    if (isSpringMVController(jClass)) {
-                        jClass.getDeclaredMethods().stream().filter(this::isSpringMVCRequest)
+                    if (WebPlugin.isSpringMVController(jClass)) {
+                        jClass.getDeclaredMethods().stream().filter(WebPlugin::isSpringMVCRequest)
                                 .forEach(jMethod -> {
-                                    // 将@Controller中的方法添加为入口点，并为HttpServletRequest变量创建抽象对象
-                                    solver.addEntryPoint(new EntryPoint(jMethod,
-                                            new HttpServletParamProvider(solver, jMethod, solver.getHeapModel(), 1)));
-                                });
-                    } else if (isServlet(jClass)) {
-                        jClass.getDeclaredMethods().stream().filter(this::isServletRequest)
-                                .forEach(jMethod -> {
-                                    // 将Servlet中的doGet等方法添加为入口点，并为HttpServletRequest变量创建抽象对象
-                                    solver.addEntryPoint(new EntryPoint(jMethod,
-                                            new HttpServletParamProvider(solver, jMethod, solver.getHeapModel(), 1)));
-                                });
-                    } else if (isJSP(jClass)) {
-                        jClass.getDeclaredMethods().stream().filter(this::isJSPRequest)
-                                .forEach(jMethod -> {
-                                    // 将JSP类中的_jspService方法添加为入口点，并为HttpServletRequest变量创建抽象对象
-                                    solver.addEntryPoint(new EntryPoint(jMethod,
-                                            new HttpServletParamProvider(solver, jMethod, solver.getHeapModel(), 1)));
-                                });
-                    } else if (isStruts2Action(jClass)) {
-                        jClass.getDeclaredMethods().stream().filter(this::isServletExecute)
-                                .forEach(jMethod -> {
-                                    // 将Struts2类中的execute方法添加为入口点
-                                    solver.addEntryPoint(new EntryPoint(jMethod,
-                                            new HttpServletParamProvider(solver, jMethod, solver.getHeapModel(), 1)));
+                                    if(jMethod.getName().equals("hello5")) {
+                                        // 将@Controller中的方法添加为入口点，并为所有形参创建抽象对象
+                                        solver.addEntryPoint(new EntryPoint(jMethod,
+                                                new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
+                                    }
                                 });
                     }
+//                    else if (isServlet(jClass)) {
+//                        jClass.getDeclaredMethods().stream().filter(this::isServletRequest)
+//                                .forEach(jMethod -> {
+//                                    // 将Servlet中的doGet等方法添加为入口点，并为所有形参创建抽象对象
+//                                    solver.addEntryPoint(new EntryPoint(jMethod,
+//                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
+//                                });
+//                    } else if (isJSP(jClass)) {
+//                        jClass.getDeclaredMethods().stream().filter(this::isJSPRequest)
+//                                .forEach(jMethod -> {
+//                                    // 将JSP类中的_jspService方法添加为入口点，并为所有形参创建抽象对象
+//                                    solver.addEntryPoint(new EntryPoint(jMethod,
+//                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
+//                                });
+//                    } else if (isStruts2Action(jClass)) {
+//                        jClass.getDeclaredMethods().stream().filter(this::isServletExecute)
+//                                .forEach(jMethod -> {
+//                                    // 将Struts2类中的execute方法添加为入口点
+//                                    solver.addEntryPoint(new EntryPoint(jMethod,
+//                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
+//                                });
+//                    }
 
                 }));
     }
@@ -91,11 +95,11 @@ public class WebPlugin implements Plugin {
         return false;
     }
 
-    private boolean isSpringMVCRequest(JMethod jMethod) {
+    public static boolean isSpringMVCRequest(JMethod jMethod) {
         return jMethod.getAnnotations().stream().anyMatch(annotation -> annotation.getType().matches("org.springframework.web.bind.annotation.\\w+Mapping"));
     }
 
-    private boolean isSpringMVController(JClass jClass) {
+    public static boolean isSpringMVController(JClass jClass) {
         return jClass.getAnnotations().stream().anyMatch(annotation -> annotation.getType().equals(ComponentType.ControllerType.getName())
                 || annotation.getType().equals(ComponentType.RestControllerType.getName()));
     }

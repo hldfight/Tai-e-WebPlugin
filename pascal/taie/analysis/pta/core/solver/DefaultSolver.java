@@ -24,6 +24,7 @@ package pascal.taie.analysis.pta.core.solver;
 
 import hldf.taie.analysis.pta.plugin.ComponentType;
 import hldf.taie.analysis.pta.plugin.DependencyInjectionType;
+import hldf.taie.analysis.pta.plugin.WebEntryParamProvider;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
@@ -78,10 +79,7 @@ import pascal.taie.language.classes.ClassHierarchy;
 import pascal.taie.language.classes.JClass;
 import pascal.taie.language.classes.JField;
 import pascal.taie.language.classes.JMethod;
-import pascal.taie.language.type.ArrayType;
-import pascal.taie.language.type.ClassType;
-import pascal.taie.language.type.Type;
-import pascal.taie.language.type.TypeSystem;
+import pascal.taie.language.type.*;
 import pascal.taie.util.collection.Maps;
 import pascal.taie.util.collection.Sets;
 
@@ -476,6 +474,17 @@ public class DefaultSolver implements Solver {
                 // resolve callee
                 JMethod callee = CallGraphs.resolveCallee(
                         recvObj.getObject().getType(), callSite);
+                // 处理SpringMVC入口函数中的JavaBean对象
+                if (recvObj.getObject() instanceof MockObj mockObj && mockObj.getDescriptor().string().equals("WebEntryParamObj")
+                        && callee != null && callee.getName().startsWith("get") && callee.getParamCount() == 0 && !(callee.getReturnType() instanceof VoidType)) {
+                    plugin.onCallWebEntryParamObjGetter(context, callSite, callee);
+                    return;
+                }
+                // 处理Mybatis的接口函数调用
+                if (callee == null && recvObj.getObject() instanceof MockObj mockObj && mockObj.getDescriptor().string().equals("DependencyInjectionMapperObj")) {
+                    plugin.onCallMybatisMethod(recvObj, callSite);
+                    callee = callSite.getMethodRef().resolve();
+                }
                 if (callee != null) {
                     // select context
                     CSCallSite csCallSite = csManager.getCSCallSite(context, callSite);
@@ -551,7 +560,7 @@ public class DefaultSolver implements Solver {
     }
 
     /**
-     * 根据Spring的规则，查找依赖注入对象的实际类型
+     * 根据Spring的规则，查找依赖注入对象的实际类型，并返回抽象对象
      *
      * 每种注解装配依赖注入对象的规则如下：
      * 1. @Autowired 和 @Inject 两个注解的查找规则相同，先根据类型查找，再根据名称查找
@@ -559,60 +568,67 @@ public class DefaultSolver implements Solver {
      *
      * 在静态分析算法中，@Autowired @Inject @Resource 三个注解都可以按照先类型，后名称的规则进行搜索，并不会出现误差
      */
-    private Type isDI(JField field) {
+    private Obj isDI(JField field) {
+        if (!field.hasAnnotation(DependencyInjectionType.AutowiredType.getName()) &&
+                !field.hasAnnotation(DependencyInjectionType.InjectType.getName()) &&
+                !field.hasAnnotation(DependencyInjectionType.ResourceType.getName())) {
+            return null;
+        }
+
         JClass fieldClazz = hierarchy.getClass(field.getType().getName());
         String fieldName = field.getName();
 
         // 处理@Qualifier注解
-        if ((field.hasAnnotation(DependencyInjectionType.AutowiredType.getName()) ||
-                field.hasAnnotation("javax.inject.Inject")) && field.hasAnnotation(DependencyInjectionType.QualifierType.getName())) {
+        if (field.hasAnnotation(DependencyInjectionType.QualifierType.getName()) &&
+                (field.hasAnnotation(DependencyInjectionType.AutowiredType.getName()) || field.hasAnnotation(DependencyInjectionType.InjectType.getName()))) {
             Collection<JClass> subs = hierarchy.getAllSubclassesOf(fieldClazz);
             String fieldQualifierValue = field.getAnnotation(DependencyInjectionType.QualifierType.getName()).getElement("value").toString();
             for (JClass sub : subs) {
                 if (sub.hasAnnotation(DependencyInjectionType.QualifierType.getName())) {
                     String clazzQualifierValue = sub.getAnnotation(DependencyInjectionType.QualifierType.getName()).getElement("value").toString();
                     if(fieldQualifierValue.equals(clazzQualifierValue)) {
-                        return sub.getType();
+                        return heapModel.getMockObj(() -> "DependencyInjectionObj", field.getRef(), sub.getType());
                     }
                 }
             }
         }
 
-        if (field.hasAnnotation(DependencyInjectionType.AutowiredType.getName()) ||
-                field.hasAnnotation(DependencyInjectionType.InjectType.getName()) ||
-                field.hasAnnotation(DependencyInjectionType.ResourceType.getName())) {
-
-            Collection<JClass> subs = hierarchy.getAllSubclassesOf(fieldClazz);
-            List<JClass> filterSubs = subs.stream().filter(jClass -> !jClass.isInterface() && !jClass.isAbstract() && (jClass.hasAnnotation(ComponentType.ServiceType.getName()) ||
-                    jClass.hasAnnotation(ComponentType.ComponentType.getName()))).toList();
-            if (filterSubs.size() == 1) {
-                return filterSubs.get(0).getType();
+        Collection<JClass> subs = hierarchy.getAllSubclassesOf(fieldClazz);
+        List<JClass> componentSubs = subs.stream().filter(jClass -> jClass.hasAnnotation(ComponentType.ServiceType.getName()) ||
+                jClass.hasAnnotation(ComponentType.ComponentType.getName()) ||
+                jClass.hasAnnotation(ComponentType.RepositoryType.getName()) ||
+                jClass.hasAnnotation(ComponentType.MapperType.getName())).toList();
+        List<JClass> specialSubs = componentSubs.stream().filter(jClass -> !jClass.isInterface() && !jClass.isAbstract()).toList();
+        if (specialSubs.size() == 1) {
+            return heapModel.getMockObj(() -> "DependencyInjectionObj", field.getRef(), specialSubs.get(0).getType());
+        } else if(componentSubs.size() == 1 && componentSubs.get(0).hasAnnotation(ComponentType.MapperType.getName())) {
+            return heapModel.getMockObj(() -> "DependencyInjectionMapperObj", field.getRef(), componentSubs.get(0).getType());
+        } else {
+            String diName = field.hasAnnotation(DependencyInjectionType.ResourceType.getName()) && field.getAnnotation(DependencyInjectionType.ResourceType.getName()).hasElement("name") ? field.getAnnotation(DependencyInjectionType.ResourceType.getName()).getElement("name").toString() : null;
+            if (diName == null) {
+                diName = fieldName;
             } else {
-                String diName = field.hasAnnotation(DependencyInjectionType.ResourceType.getName()) && field.getAnnotation(DependencyInjectionType.ResourceType.getName()).hasElement("name") ? field.getAnnotation(DependencyInjectionType.ResourceType.getName()).getElement("name").toString() : null;
-                if (diName == null) {
-                    diName = fieldName;
-                } else {
-                    diName = diName.substring(1, diName.length() - 1);
-                }
-                for (JClass sub : filterSubs) {
-                    String clazzName = sub.getSimpleName();
-                    String componentName = sub.hasAnnotation(ComponentType.ServiceType.getName()) && sub.getAnnotation(ComponentType.ServiceType.getName()).hasElement("value") ? sub.getAnnotation(ComponentType.ServiceType.getName()).getElement("value").toString() : null;
+                diName = diName.substring(1, diName.length() - 1);
+            }
+            for (JClass sub : componentSubs) {
+                String clazzName = sub.getSimpleName();
+                String componentName = sub.hasAnnotation(ComponentType.ServiceType.getName()) && sub.getAnnotation(ComponentType.ServiceType.getName()).hasElement("value") ? sub.getAnnotation(ComponentType.ServiceType.getName()).getElement("value").toString() : null;
+                if (componentName == null) {
+                    componentName = sub.hasAnnotation(ComponentType.ComponentType.getName()) && sub.getAnnotation(ComponentType.ComponentType.getName()).hasElement("value") ? sub.getAnnotation(ComponentType.ComponentType.getName()).getElement("value").toString() : null;
                     if (componentName == null) {
-                        componentName = sub.hasAnnotation(ComponentType.ComponentType.getName()) && sub.getAnnotation(ComponentType.ComponentType.getName()).hasElement("value") ? sub.getAnnotation(ComponentType.ComponentType.getName()).getElement("value").toString() : null;
-                        if (componentName == null) {
-                            componentName = clazzName.substring(0, 1).toLowerCase() + clazzName.substring(1);
-                        } else {
-                            componentName = componentName.substring(1, componentName.length() - 1);
-                        }
+                        componentName = clazzName.substring(0, 1).toLowerCase() + clazzName.substring(1);
                     } else {
                         componentName = componentName.substring(1, componentName.length() - 1);
                     }
-                    if (componentName.equals(diName)) {
-                        return sub.getType();
-                    }
+                } else {
+                    componentName = componentName.substring(1, componentName.length() - 1);
+                }
+                if (componentName.equals(diName)) {
+                    return heapModel.getMockObj(() -> "DependencyInjectionObj", field.getRef(), sub.getType());
                 }
             }
         }
+
         return null;
     }
 
@@ -771,7 +787,7 @@ public class DefaultSolver implements Solver {
              *     com.hldf.demo.service.HelloService $r4;
              *     $r4 = %this.<com.hldf.demo.controller.HelloController: com.hldf.demo.service.HelloService helloService>;
              *
-             * 在else分支中，首先确定依赖注入对象的实际类型，然后为其创建抽象对象，并添加到指针流图中
+             * 在else分支中，首先确定依赖注入对象的实际类型，并为其创建抽象对象，然后添加到指针流图中
              */
             @Override
             public Void visit(LoadField stmt) {
@@ -781,9 +797,8 @@ public class DefaultSolver implements Solver {
                     CSVar to = csManager.getCSVar(context, stmt.getLValue());
                     addPFGEdge(sfield, to, FlowKind.STATIC_LOAD);
                 } else {
-                    Type diType = isDI(field);
-                    if (diType != null) {
-                        Obj obj = heapModel.getMockObj(() -> "DependencyInjectionObj", field.getRef(), diType);
+                    Obj obj = isDI(field);
+                    if (obj != null) {
                         Context heapContext = contextSelector.selectHeapContext(csMethod, obj);
                         addVarPointsTo(context, stmt.getLValue(), heapContext, obj);
                     }

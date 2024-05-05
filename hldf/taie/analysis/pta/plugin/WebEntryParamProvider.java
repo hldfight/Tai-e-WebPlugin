@@ -5,6 +5,7 @@ import pascal.taie.analysis.pta.core.heap.HeapModel;
 import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.core.solver.ParamProvider;
 import pascal.taie.analysis.pta.core.solver.Solver;
+import pascal.taie.language.classes.ClassNames;
 import pascal.taie.language.classes.JField;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.language.type.*;
@@ -20,11 +21,7 @@ import java.util.*;
  * 该类在pascal.taie.analysis.pta.core.solver.DeclaredParamProvider基础上，
  * 添加了为HttpServletRequest类型的变量创建指针分析对象。
  */
-public class HttpServletParamProvider implements ParamProvider {
-
-    private static final String HttpServletRequestName = "javax.servlet.http.HttpServletRequest";
-    private static final String RequestFacadeName = "org.apache.catalina.connector.RequestFacade";
-
+public class WebEntryParamProvider implements ParamProvider {
 
     /**
      * Special index representing "this" variable.
@@ -46,8 +43,6 @@ public class HttpServletParamProvider implements ParamProvider {
         }
     }
 
-    private Solver solver;
-
     @Nullable
     private Obj thisObj;
 
@@ -61,8 +56,8 @@ public class HttpServletParamProvider implements ParamProvider {
      * @param method    the entry method.
      * @param heapModel the model for generating mock objects.
      */
-    public HttpServletParamProvider(Solver solver, JMethod method, HeapModel heapModel) {
-        this(solver, method, heapModel, 0);
+    public WebEntryParamProvider(JMethod method, HeapModel heapModel) {
+        this(method, heapModel, 0);
     }
 
     /**
@@ -72,8 +67,7 @@ public class HttpServletParamProvider implements ParamProvider {
      *                  the provider generates objects recursively along
      *                  k field/array accesses.
      */
-    public HttpServletParamProvider(Solver solver, JMethod method, HeapModel heapModel, int k) {
-        this.solver = solver;
+    public WebEntryParamProvider(JMethod method, HeapModel heapModel, int k) {
         generateObjs(method, heapModel, k);
     }
 
@@ -82,25 +76,18 @@ public class HttpServletParamProvider implements ParamProvider {
         // generate this (receiver) object
         if (!method.isStatic() && !method.getDeclaringClass().isAbstract()) {
             thisObj = heapModel.getMockObj(Descriptor.ENTRY_DESC,
-                    new HttpServletParamProvider.MethodParam(method, THIS_INDEX),
+                    new WebEntryParamProvider.MethodParam(method, THIS_INDEX),
                     method.getDeclaringClass().getType(), method);
             queue.add(new Pair<>(thisObj, 0));
         }
         // generate parameter objects
         paramObjs = new Obj[method.getParamCount()];
-        Type requestFacadeType = new TypeSystemImpl(this.solver.getHierarchy()).getType(RequestFacadeName);
         for (int i = 0; i < method.getParamCount(); ++i) {
             Type paramType = method.getParamType(i);
-            // 为HttpServletRequest类型的变量创建抽象对象，该对象为HttpServletRequest接口的具体实现类RequestFacade
-            if (isHttpServletRequest(paramType) && requestFacadeType instanceof ClassType cType && cType.getJClass() != null) {
-                paramObjs[i] = heapModel.getMockObj(() -> "ServletBuiltInObj",
-                        new HttpServletParamProvider.MethodParam(method, i), requestFacadeType, method);
-                queue.add(new Pair<>(paramObjs[i], 0));
-            } else if (isInstantiable(paramType)) {
-                paramObjs[i] = heapModel.getMockObj(Descriptor.ENTRY_DESC,
-                        new HttpServletParamProvider.MethodParam(method, i), paramType, method);
-                queue.add(new Pair<>(paramObjs[i], 0));
-            }
+            // 为web入口函数的所有形参列表创建抽象对象
+            paramObjs[i] = heapModel.getMockObj(() -> "WebEntryParamObj",
+                    new WebEntryParamProvider.MethodParam(method, i), paramType, method);
+            queue.add(new Pair<>(paramObjs[i], 0));
         }
         // generate k-level field and array objects by a level-order traversal
         fieldObjs = Maps.newTwoKeyMultiMap();
@@ -136,13 +123,30 @@ public class HttpServletParamProvider implements ParamProvider {
         }
     }
 
-    private static boolean isInstantiable(Type type) {
+    public static boolean isInstantiable(Type type) {
         return (type instanceof ClassType cType && !cType.getJClass().isAbstract())
                 || type instanceof ArrayType;
     }
 
+    public static boolean isBoxedType(Type type) {
+        String name = type.getName();
+        return name.equals(ClassNames.FLOAT) ||
+                name.equals(ClassNames.DOUBLE) ||
+                name.equals(ClassNames.INTEGER) ||
+                name.equals(ClassNames.BOOLEAN) ||
+                name.equals(ClassNames.SHORT) ||
+                name.equals(ClassNames.BYTE) ||
+                name.equals(ClassNames.CHARACTER) ||
+                name.equals(ClassNames.LONG);
+    }
+
+    public static boolean isJDKAPI(Type type) {
+        String name = type.getName();
+        return name.startsWith("java.") || name.startsWith("javax.");
+    }
+
     private static boolean isHttpServletRequest(Type type) {
-        return type instanceof ClassType cType && cType.getName().equals(HttpServletRequestName);
+        return type instanceof ClassType cType && cType.getName().equals("javax.servlet.http.HttpServletRequest");
     }
 
     @Override
