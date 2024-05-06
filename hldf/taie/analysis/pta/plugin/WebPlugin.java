@@ -25,35 +25,33 @@ public class WebPlugin implements Plugin {
                     if (WebPlugin.isSpringMVController(jClass)) {
                         jClass.getDeclaredMethods().stream().filter(WebPlugin::isSpringMVCRequest)
                                 .forEach(jMethod -> {
-                                    if(jMethod.getName().equals("hello5")) {
-                                        // 将@Controller中的方法添加为入口点，并为所有形参创建抽象对象
-                                        solver.addEntryPoint(new EntryPoint(jMethod,
-                                                new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
-                                    }
+                                    // 将@Controller中的方法添加为入口点，并为所有形参创建抽象对象
+                                    solver.addEntryPoint(new EntryPoint(jMethod,
+                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
                                 });
                     }
-//                    else if (isServlet(jClass)) {
-//                        jClass.getDeclaredMethods().stream().filter(this::isServletRequest)
-//                                .forEach(jMethod -> {
-//                                    // 将Servlet中的doGet等方法添加为入口点，并为所有形参创建抽象对象
-//                                    solver.addEntryPoint(new EntryPoint(jMethod,
-//                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
-//                                });
-//                    } else if (isJSP(jClass)) {
-//                        jClass.getDeclaredMethods().stream().filter(this::isJSPRequest)
-//                                .forEach(jMethod -> {
-//                                    // 将JSP类中的_jspService方法添加为入口点，并为所有形参创建抽象对象
-//                                    solver.addEntryPoint(new EntryPoint(jMethod,
-//                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
-//                                });
-//                    } else if (isStruts2Action(jClass)) {
-//                        jClass.getDeclaredMethods().stream().filter(this::isServletExecute)
-//                                .forEach(jMethod -> {
-//                                    // 将Struts2类中的execute方法添加为入口点
-//                                    solver.addEntryPoint(new EntryPoint(jMethod,
-//                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
-//                                });
-//                    }
+                    else if (isServlet(jClass)) {
+                        jClass.getDeclaredMethods().stream().filter(this::isServletRequest)
+                                .forEach(jMethod -> {
+                                    // 将Servlet中的doGet等方法添加为入口点，并为所有形参创建抽象对象
+                                    solver.addEntryPoint(new EntryPoint(jMethod,
+                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
+                                });
+                    } else if (isJSP(jClass)) {
+                        jClass.getDeclaredMethods().stream().filter(this::isJSPRequest)
+                                .forEach(jMethod -> {
+                                    // 将JSP类中的_jspService方法添加为入口点，并为所有形参创建抽象对象
+                                    solver.addEntryPoint(new EntryPoint(jMethod,
+                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
+                                });
+                    } else if (isStruts2Action(jClass)) {
+                        jClass.getDeclaredMethods().stream().filter(this::isServletExecute)
+                                .forEach(jMethod -> {
+                                    // 将Struts2类中的execute方法添加为入口点
+                                    solver.addEntryPoint(new EntryPoint(jMethod,
+                                            new WebEntryParamProvider(jMethod, solver.getHeapModel(), 1)));
+                                });
+                    }
 
                 }));
     }
