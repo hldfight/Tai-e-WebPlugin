@@ -51,6 +51,7 @@ import pascal.taie.analysis.pta.core.heap.HeapModel;
 import pascal.taie.analysis.pta.core.heap.MockObj;
 import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.plugin.Plugin;
+import pascal.taie.analysis.pta.plugin.taint.TaintManager;
 import pascal.taie.analysis.pta.pts.PointsToSet;
 import pascal.taie.analysis.pta.pts.PointsToSetFactory;
 import pascal.taie.config.AnalysisOptions;
@@ -455,6 +456,10 @@ public class DefaultSolver implements Solver {
                         ArrayIndex arrayIndex = csManager.getArrayIndex(array);
                         addPFGEdge(arrayIndex, to, FlowKind.ARRAY_LOAD);
                     }
+                    // 当数组变量本身被标记为污点对象时，同样需要传播污点对象
+                    else if(array.getObject() instanceof MockObj mockObj && mockObj.getDescriptor().string().equals("TaintObj")) {
+                        addVarPointsTo(context, lvalue, mockObj);
+                    }
                 });
             }
         }
@@ -474,12 +479,6 @@ public class DefaultSolver implements Solver {
                 // resolve callee
                 JMethod callee = CallGraphs.resolveCallee(
                         recvObj.getObject().getType(), callSite);
-                // 处理SpringMVC入口函数中的JavaBean对象
-                if (recvObj.getObject() instanceof MockObj mockObj && mockObj.getDescriptor().string().equals("WebEntryParamObj")
-                        && callee != null && callee.getName().startsWith("get") && callee.getParamCount() == 0 && !(callee.getReturnType() instanceof VoidType)) {
-                    plugin.onCallWebEntryParamObjGetter(context, callSite, callee);
-                    return;
-                }
                 // 处理Mybatis的接口函数调用
                 if (callee == null && recvObj.getObject() instanceof MockObj mockObj && mockObj.getDescriptor().string().equals("DependencyInjectionMapperObj")) {
                     plugin.onCallMybatisMethod(recvObj, callSite);

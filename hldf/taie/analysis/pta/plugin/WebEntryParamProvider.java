@@ -4,10 +4,10 @@ import pascal.taie.analysis.pta.core.heap.Descriptor;
 import pascal.taie.analysis.pta.core.heap.HeapModel;
 import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.core.solver.ParamProvider;
-import pascal.taie.analysis.pta.core.solver.Solver;
 import pascal.taie.language.classes.ClassNames;
 import pascal.taie.language.classes.JField;
 import pascal.taie.language.classes.JMethod;
+import pascal.taie.language.classes.Subsignature;
 import pascal.taie.language.type.*;
 import pascal.taie.util.collection.Maps;
 import pascal.taie.util.collection.MultiMap;
@@ -102,7 +102,7 @@ public class WebEntryParamProvider implements ParamProvider {
                     for (JField field : cType.getJClass().getDeclaredFields()) {
                         Type fieldType = field.getType();
                         if (isInstantiable(fieldType)) {
-                            Obj obj = heapModel.getMockObj(Descriptor.ENTRY_DESC,
+                            Obj obj = heapModel.getMockObj(() -> "WebEntryParamObj",
                                     base.getAllocation() + "." + field.getName(),
                                     fieldType, method);
                             fieldObjs.put(base, field, obj);
@@ -112,7 +112,7 @@ public class WebEntryParamProvider implements ParamProvider {
                 } else if (type instanceof ArrayType aType) {
                     Type elemType = aType.elementType();
                     if (isInstantiable(elemType)) {
-                        Obj elem = heapModel.getMockObj(Descriptor.ENTRY_DESC,
+                        Obj elem = heapModel.getMockObj(() -> "WebEntryParamObj",
                                 base.getAllocation() + "[*]",
                                 elemType, method);
                         arrayObjs.put(base, elem);
@@ -142,11 +142,37 @@ public class WebEntryParamProvider implements ParamProvider {
 
     public static boolean isJDKAPI(Type type) {
         String name = type.getName();
-        return name.startsWith("java.") || name.startsWith("javax.");
+        return name.startsWith("java.") || name.startsWith("javax.") || name.startsWith("com.sun");
     }
 
-    private static boolean isHttpServletRequest(Type type) {
-        return type instanceof ClassType cType && cType.getName().equals("javax.servlet.http.HttpServletRequest");
+    public static boolean isNotPrimitiveType(Type type) {
+        return !WebEntryParamProvider.isBoxedType(type) && !(type instanceof PrimitiveType);
+    }
+
+    public static boolean isJavaBean(Type type) {
+        return isNotPrimitiveType(type) && !isJDKAPI(type);
+    }
+
+    public static JMethod getFieldGetter(Type baseType, JField jField) {
+        String fieldName = jField.getName();
+        if (baseType instanceof ClassType cType) {
+            JMethod jMethod = cType.getJClass().getDeclaredMethod("get" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
+            if (jMethod != null && jMethod.getParamCount() == 0) {
+                return jMethod;
+            }
+        }
+        return null;
+    }
+
+    public static JMethod getFieldSetter(Type baseType, JField jField) {
+        String fieldName = jField.getName();
+        if (baseType instanceof ClassType cType) {
+            JMethod jMethod = cType.getJClass().getDeclaredMethod("set" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
+            if (jMethod != null && jMethod.getParamCount() == 1 && jMethod.getReturnType() instanceof VoidType) {
+                return jMethod;
+            }
+        }
+        return null;
     }
 
     @Override

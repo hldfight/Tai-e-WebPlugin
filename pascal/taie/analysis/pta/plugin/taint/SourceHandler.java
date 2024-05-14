@@ -27,13 +27,11 @@ import hldf.taie.analysis.pta.plugin.WebPlugin;
 import pascal.taie.analysis.graph.callgraph.CallKind;
 import pascal.taie.analysis.graph.callgraph.Edge;
 import pascal.taie.analysis.pta.core.cs.context.Context;
-import pascal.taie.analysis.pta.core.cs.element.CSCallSite;
-import pascal.taie.analysis.pta.core.cs.element.CSMethod;
-import pascal.taie.analysis.pta.core.cs.element.CSObj;
-import pascal.taie.analysis.pta.core.heap.Descriptor;
+import pascal.taie.analysis.pta.core.cs.element.*;
 import pascal.taie.analysis.pta.core.heap.MockObj;
 import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.plugin.util.InvokeUtils;
+import pascal.taie.analysis.pta.pts.PointsToSet;
 import pascal.taie.ir.IR;
 import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.stmt.Invoke;
@@ -43,16 +41,13 @@ import pascal.taie.language.classes.JField;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.language.type.ArrayType;
 import pascal.taie.language.type.ClassType;
-import pascal.taie.language.type.PrimitiveType;
 import pascal.taie.language.type.Type;
 import pascal.taie.util.collection.Maps;
 import pascal.taie.util.collection.MultiMap;
 import pascal.taie.util.collection.Pair;
+import pascal.taie.util.collection.Sets;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Handles sources in taint analysis.
@@ -85,6 +80,11 @@ class SourceHandler extends OnFlyHandler {
      * Map from a source field taint objects generated from it.
      */
     private final Map<JField, Type> fieldSources = Maps.newMap();
+
+    /**
+     * 记录SpringMVC入口函数的JavaBean对象，记录到该集合的对象表明已经为其字段创建过污点对象
+     */
+    private final Set<CSObj> webEntryParamObj = Sets.newSet();
 
     /**
      * Maps from a method to {@link LoadField} statements in the method
@@ -163,6 +163,7 @@ class SourceHandler extends OnFlyHandler {
 
     @Override
     public void onNewCSMethod(CSMethod csMethod) {
+        handleWebEntryParam(csMethod);
         handleParamSource(csMethod);
         if (handleFieldSources) {
             handleFieldSource(csMethod);
@@ -185,21 +186,6 @@ class SourceHandler extends OnFlyHandler {
                 Obj taint = manager.makeTaint(sourcePoint, type);
                 solver.addVarPointsTo(context, param, taint);
             });
-        }
-        // 为SpringMVC的入口函数的形参列表创建污点对象
-        else if(WebPlugin.isSpringMVController(csMethod.getMethod().getDeclaringClass())
-                && WebPlugin.isSpringMVCRequest(csMethod.getMethod())) {
-            Context context = csMethod.getContext();
-            IR ir = method.getIR();
-            for (int i = 0; i < method.getParamCount(); ++i) {
-                Type paramType = method.getParamType(i);
-                // 仅给可实例化且非基础类型的对象创建污点对象
-                if (WebEntryParamProvider.isInstantiable(paramType) && !(paramType instanceof PrimitiveType) && !WebEntryParamProvider.isBoxedType(paramType)) {
-                    SourcePoint sourcePoint = new ParamSourcePoint(method, i);
-                    Obj taint = manager.makeTaint(sourcePoint, paramType);
-                    solver.addVarPointsTo(context, ir.getParam(i), taint);
-                }
-            }
         }
     }
 
@@ -240,6 +226,56 @@ class SourceHandler extends OnFlyHandler {
         }
     }
 
+    /**
+     * 为SpringMVC入口函数中的JavaBean对象的字段创建污点对象
+     *
+     */
+    @Override
+    public void onNewPointsToSet(CSVar csVar, PointsToSet pts) {
+        pts.forEach(baseObj -> {
+            if (webEntryParamObj.add(baseObj) && baseObj.getObject() instanceof MockObj mockObj && mockObj.getDescriptor().string().equals("WebEntryParamObj")) {
+                Type type = baseObj.getObject().getType();
+                if (type instanceof ClassType cType) {
+                    for (JField field : cType.getJClass().getDeclaredFields()) {
+                        Type fieldType = field.getType();
+                        if (WebEntryParamProvider.isInstantiable(fieldType) && WebEntryParamProvider.isNotPrimitiveType(fieldType)) {
+                            JMethod fieldSetter = WebEntryParamProvider.getFieldSetter(type, field);
+                            if (fieldSetter != null) {
+                                SourcePoint sourcePoint = new ParamSourcePoint(fieldSetter, 0);
+                                Obj taint = manager.makeTaint(sourcePoint, fieldType);
+                                InstanceField iField = solver.getCSManager().getInstanceField(baseObj, field);
+                                solver.addPointsTo(iField, solver.getContextSelector().getEmptyContext(), taint);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+    }
+
+    /**
+     * 为SpringMVC的入口函数的形参列表创建污点对象
+     *
+     */
+    private void handleWebEntryParam(CSMethod csMethod) {
+        JMethod method = csMethod.getMethod();
+        if(WebPlugin.isSpringMVController(method.getDeclaringClass())
+                && WebPlugin.isSpringMVCRequest(method)) {
+            Context context = csMethod.getContext();
+            IR ir = method.getIR();
+
+            for (int i = 0; i < method.getParamCount(); ++i) {
+                Type paramType = method.getParamType(i);
+                // 仅给可实例化且非基础类型的对象创建污点对象
+                if (WebEntryParamProvider.isInstantiable(paramType) && WebEntryParamProvider.isNotPrimitiveType(paramType)) {
+                    SourcePoint sourcePoint = new ParamSourcePoint(method, i);
+                    Obj taint = manager.makeTaint(sourcePoint, paramType);
+                    solver.addVarPointsTo(context, ir.getParam(i), taint);
+                }
+            }
+        }
+    }
 
     /**
      * 当污点分析配置文件中，配置的污点源为抽象函数时，在此进行处理
