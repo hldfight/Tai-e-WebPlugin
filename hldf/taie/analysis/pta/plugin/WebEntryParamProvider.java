@@ -150,27 +150,34 @@ public class WebEntryParamProvider implements ParamProvider {
     }
 
     public static boolean isJavaBean(Type type) {
-        return isNotPrimitiveType(type) && !isJDKAPI(type);
+        if (!isJDKAPI(type) && type instanceof ClassType cType) {
+            Collection<JField> fields = cType.getJClass().getDeclaredFields();
+            for (JField field : fields) {
+                JMethod getter = getFieldGetter(cType, field);
+                JMethod setter = getFieldSetter(cType, field);
+                if (getter == null || setter == null) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
-    public static JMethod getFieldGetter(Type baseType, JField jField) {
+    public static JMethod getFieldGetter(ClassType baseType, JField jField) {
         String fieldName = jField.getName();
-        if (baseType instanceof ClassType cType) {
-            JMethod jMethod = cType.getJClass().getDeclaredMethod("get" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
-            if (jMethod != null && jMethod.getParamCount() == 0) {
-                return jMethod;
-            }
+        JMethod jMethod = baseType.getJClass().getDeclaredMethod("get" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
+        if (jMethod != null && jMethod.getParamCount() == 0) {
+            return jMethod;
         }
         return null;
     }
 
-    public static JMethod getFieldSetter(Type baseType, JField jField) {
+    public static JMethod getFieldSetter(ClassType baseType, JField jField) {
         String fieldName = jField.getName();
-        if (baseType instanceof ClassType cType) {
-            JMethod jMethod = cType.getJClass().getDeclaredMethod("set" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
-            if (jMethod != null && jMethod.getParamCount() == 1 && jMethod.getReturnType() instanceof VoidType) {
-                return jMethod;
-            }
+        JMethod jMethod = baseType.getJClass().getDeclaredMethod("set" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
+        if (jMethod != null && jMethod.getParamCount() == 1 && jMethod.getReturnType() instanceof VoidType) {
+            return jMethod;
         }
         return null;
     }

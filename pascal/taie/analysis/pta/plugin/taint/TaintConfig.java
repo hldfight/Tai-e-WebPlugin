@@ -31,11 +31,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import hldf.taie.analysis.pta.plugin.MybatisHelper;
+import hldf.taie.analysis.pta.plugin.MybatisSink;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.dom4j.Attribute;
+import org.dom4j.Document;
+import org.dom4j.Element;
+import org.dom4j.io.SAXReader;
+import pascal.taie.World;
 import pascal.taie.analysis.pta.plugin.taint.inferer.TransInferConfig;
 import pascal.taie.analysis.pta.plugin.util.InvokeUtils;
 import pascal.taie.config.ConfigException;
+import pascal.taie.language.annotation.Annotation;
 import pascal.taie.language.classes.ClassHierarchy;
 import pascal.taie.language.classes.JClass;
 import pascal.taie.language.classes.JField;
@@ -49,11 +57,14 @@ import pascal.taie.util.collection.Lists;
 import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static pascal.taie.analysis.pta.plugin.taint.TransferPoint.ARRAY_SUFFIX;
@@ -63,6 +74,7 @@ import static pascal.taie.analysis.pta.plugin.taint.TransferPoint.ARRAY_SUFFIX;
  */
 public record TaintConfig(List<Source> sources,
                           List<Sink> sinks,
+                          List<MybatisSink> mybatisSinks,
                           List<TaintTransfer> transfers,
                           List<ParamSanitizer> paramSanitizers,
                           boolean callSiteMode,
@@ -74,7 +86,7 @@ public record TaintConfig(List<Source> sources,
      * An empty taint config.
      */
     private static final TaintConfig EMPTY = new TaintConfig(
-            List.of(), List.of(), List.of(), List.of(), false, TransInferConfig.EMPTY);
+            List.of(), List.of(), List.of(), List.of(), List.of(), false, TransInferConfig.EMPTY);
 
     /**
      * Loads a taint analysis configuration from given path.
@@ -141,6 +153,7 @@ public record TaintConfig(List<Source> sources,
         return new TaintConfig(
                 Lists.concatDistinct(sources, other.sources),
                 Lists.concatDistinct(sinks, other.sinks),
+                Lists.concatDistinct(mybatisSinks, other.mybatisSinks),
                 Lists.concatDistinct(transfers, other.transfers),
                 Lists.concatDistinct(paramSanitizers, other.paramSanitizers),
                 callSiteMode || other.callSiteMode,
@@ -221,13 +234,14 @@ public record TaintConfig(List<Source> sources,
             JsonNode node = oc.readTree(p);
             List<Source> sources = deserializeSources(node.get("sources"));
             List<Sink> sinks = deserializeSinks(node.get("sinks"));
+            List<MybatisSink> mybatisSinks = MybatisHelper.dealMybatisXml(); // 处理mybatis的xml文件
             List<TaintTransfer> transfers = deserializeTransfers(node.get("transfers"));
             List<ParamSanitizer> sanitizers = deserializeSanitizers(node.get("sanitizers"));
             JsonNode callSiteNode = node.get("call-site-mode");
             TransInferConfig inferenceConfig = deserializeInferenceConfig((node.get("transfer-inference")));
             boolean callSiteMode = (callSiteNode != null && callSiteNode.asBoolean());
             return new TaintConfig(
-                    sources, sinks, transfers, sanitizers, callSiteMode, inferenceConfig);
+                    sources, sinks, mybatisSinks, transfers, sanitizers, callSiteMode, inferenceConfig);
         }
 
         /**

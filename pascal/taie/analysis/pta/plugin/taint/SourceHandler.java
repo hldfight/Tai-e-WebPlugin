@@ -239,7 +239,7 @@ class SourceHandler extends OnFlyHandler {
                     for (JField field : cType.getJClass().getDeclaredFields()) {
                         Type fieldType = field.getType();
                         if (WebEntryParamProvider.isInstantiable(fieldType) && WebEntryParamProvider.isNotPrimitiveType(fieldType)) {
-                            JMethod fieldSetter = WebEntryParamProvider.getFieldSetter(type, field);
+                            JMethod fieldSetter = WebEntryParamProvider.getFieldSetter(cType, field);
                             if (fieldSetter != null) {
                                 SourcePoint sourcePoint = new ParamSourcePoint(fieldSetter, 0);
                                 Obj taint = manager.makeTaint(sourcePoint, fieldType);
@@ -253,6 +253,8 @@ class SourceHandler extends OnFlyHandler {
         });
 
     }
+
+
 
     /**
      * 为SpringMVC的入口函数的形参列表创建污点对象

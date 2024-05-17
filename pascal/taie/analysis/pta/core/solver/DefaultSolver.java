@@ -24,7 +24,6 @@ package pascal.taie.analysis.pta.core.solver;
 
 import hldf.taie.analysis.pta.plugin.ComponentType;
 import hldf.taie.analysis.pta.plugin.DependencyInjectionType;
-import hldf.taie.analysis.pta.plugin.WebEntryParamProvider;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
