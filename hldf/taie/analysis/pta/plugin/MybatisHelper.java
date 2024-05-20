@@ -32,7 +32,7 @@ import java.util.stream.Stream;
  */
 public class MybatisHelper {
 
-    private static Pattern concatPattern = Pattern.compile("\\$\\{(\\w+|\\w+\\.\\w+)\\}");
+    private static Pattern concatPattern = Pattern.compile("\\$\\{([\\w.]+)\\}");
 
     private static Pattern paramPattern = Pattern.compile("^param(\\d+)$");
 
