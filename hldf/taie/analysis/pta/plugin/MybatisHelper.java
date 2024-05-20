@@ -96,6 +96,14 @@ public class MybatisHelper {
         });
     }
 
+    private static void dealCRUD(Element root, Element element, StringBuilder sql) {
+        sql.append(element.getText().strip());
+        dealInclude(root, element, sql);
+        for (Iterator<Element> it = element.elementIterator(); it.hasNext(); ) {
+            dealCRUD(root, it.next(), sql);
+        }
+    }
+
     public static List<MybatisSink> parseXml(InputStream inputStream) {
         List<MybatisSink> sinks = new ArrayList<>();
 
@@ -114,35 +122,7 @@ public class MybatisHelper {
                             JMethod jMethod = jclass.getDeclaredMethod(methodName);
                             if (jMethod != null) {
                                 final StringBuilder sql = new StringBuilder();
-                                sql.append(element.getText().strip());
-                                dealInclude(root, element, sql);
-                                for (Iterator<Element> it2 = element.elementIterator(); it2.hasNext(); ) {
-                                    Element element2 = it2.next();
-                                    if (element2.getName().matches("(where|set|trim)")) {
-                                        sql.append(element2.getText().strip());
-                                        dealInclude(root, element2, sql);
-                                        for (Iterator<Element> it3 = element2.elementIterator(); it3.hasNext(); ) {
-                                            Element element3 = it3.next();
-                                            if (element3.getName().equals("if")) {
-                                                sql.append(element3.getText().strip());
-                                                dealInclude(root, element3, sql);
-                                            }
-                                        }
-                                    } else if (element2.getName().equals("choose")) {
-                                        sql.append(element2.getText().strip());
-                                        dealInclude(root, element2, sql);
-                                        for (Iterator<Element> it3 = element2.elementIterator(); it3.hasNext(); ) {
-                                            Element element3 = it3.next();
-                                            if (element3.getName().matches("(when|otherwise)")) {
-                                                sql.append(element3.getText().strip());
-                                                dealInclude(root, element3, sql);
-                                            }
-                                        }
-                                    } else if (element2.getName().equals("foreach")) {
-                                        sql.append(element2.getText());
-                                        dealInclude(root, element2, sql);
-                                    }
-                                }
+                                dealCRUD(root, element, sql);
                                 sinks.addAll(isSqli(sql.toString(), jMethod));
                             }
                         }

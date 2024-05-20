@@ -307,7 +307,7 @@ public class TransferHandler extends OnFlyHandler {
             tfs.forEach(tf -> processTransfer(context, callSite, tf));
         }
         // 将set方法中的污点对象传播给调用该set方法的对象
-        if (method.getName().startsWith("set") && WebEntryParamProvider.isNotPrimitiveType(method.getParamType(0)) && WebEntryParamProvider.isJavaBean(method.getDeclaringClass().getType())) {
+        if (method.getName().startsWith("set") && WebEntryParamProvider.isJavaBean(method.getDeclaringClass().getType()) && WebEntryParamProvider.isNotPrimitiveType(method.getParamType(0))) {
             TaintTransfer tf = new ConcreteTransfer(method, new TransferPoint(TransferPoint.Kind.VAR, 0, null), new TransferPoint(TransferPoint.Kind.VAR, -1, null), method.getDeclaringClass().getType());
             processTransfer(edge.getCallSite().getContext(), edge.getCallSite().getCallSite(), tf);
         }
