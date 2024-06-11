@@ -92,7 +92,9 @@ public class MybatisHelper {
     private static void dealInclude(Element root, Element element, StringBuilder sql) {
         element.elements("include").forEach(includeEle -> {
             String refid = includeEle.attribute("refid").getText();
-            root.elements("sql").stream().filter(sqlEle -> sqlEle.attribute("id").getText().equals(refid)).forEach(sqlEle -> sql.append(sqlEle.getText().strip()));
+            root.elements("sql").stream().filter(sqlEle -> sqlEle.attribute("id").getText().equals(refid)).forEach(sqlEle -> {
+                dealCRUD(root, sqlEle, sql);
+            });
         });
     }
 

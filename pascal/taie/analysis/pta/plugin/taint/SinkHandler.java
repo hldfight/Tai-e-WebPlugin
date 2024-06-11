@@ -24,20 +24,16 @@ package pascal.taie.analysis.pta.plugin.taint;
 
 import hldf.taie.analysis.pta.plugin.MybatisHelper;
 import hldf.taie.analysis.pta.plugin.MybatisSink;
-import hldf.taie.analysis.pta.plugin.WebEntryParamProvider;
 import pascal.taie.World;
 import pascal.taie.analysis.graph.callgraph.CallKind;
 import pascal.taie.analysis.graph.callgraph.Edge;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
-import pascal.taie.analysis.pta.core.cs.context.Context;
-import pascal.taie.analysis.pta.core.cs.element.ArrayIndex;
 import pascal.taie.analysis.pta.core.cs.element.CSObj;
 import pascal.taie.analysis.pta.core.heap.MockObj;
 import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.plugin.util.InvokeUtils;
 import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.stmt.Invoke;
-import pascal.taie.language.annotation.Annotation;
 import pascal.taie.language.classes.JField;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.language.type.Type;
@@ -45,13 +41,9 @@ import pascal.taie.util.collection.MultiMap;
 import pascal.taie.util.collection.MultiMapCollector;
 import pascal.taie.util.collection.Sets;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Handles sinks in taint analysis.
@@ -100,11 +92,11 @@ class SinkHandler extends OnFlyHandler {
                     .forEach(sinkCall -> {
                         Var arg = InvokeUtils.getVar(sinkCall, i);
                         SinkPoint sinkPoint = new SinkPoint(sinkCall, i);
-                        result.getPointsToSet(arg)
-                                .stream()
-                                .map(obj -> {
-                                    Type objType = obj.getType();
-                                    if (f != null) {
+                        if (f != null) {
+                            result.getPointsToSet(arg)
+                                    .stream()
+                                    .map(obj -> {
+                                        Type objType = obj.getType();
                                         JField jField = World.get().getClassHierarchy().getClass(objType.getName()).getDeclaredField(f);
                                         if (jField != null) {
                                             for (Obj fieldObj: result.getPointsToSet(obj, jField)) {
@@ -113,13 +105,20 @@ class SinkHandler extends OnFlyHandler {
                                                 }
                                             }
                                         }
-                                    }
-                                    return obj;
-                                })
-                                .filter(manager::isTaint)
-                                .map(manager::getSourcePoint)
-                                .map(sourcePoint -> new TaintFlow(sourcePoint, sinkPoint))
-                                .forEach(taintFlows::add);
+                                        return null;
+                                    })
+                                    .filter(manager::isTaint)
+                                    .map(manager::getSourcePoint)
+                                    .map(sourcePoint -> new TaintFlow(sourcePoint, sinkPoint))
+                                    .forEach(taintFlows::add);
+                        } else {
+                            result.getPointsToSet(arg)
+                                    .stream()
+                                    .filter(manager::isTaint)
+                                    .map(manager::getSourcePoint)
+                                    .map(sourcePoint -> new TaintFlow(sourcePoint, sinkPoint))
+                                    .forEach(taintFlows::add);
+                        }
                     });
         });
         if (callSiteMode) {
